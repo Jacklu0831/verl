@@ -188,7 +188,7 @@ class vLLMRollout(BaseRollout):
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
-        print(f"kwargs: {kwargs}")
+        print(f"vLLM Rollout kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id

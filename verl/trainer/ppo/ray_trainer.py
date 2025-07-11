@@ -124,6 +124,8 @@ class ResourcePoolManager:
             for node, node_info in node_available_resources.items()
         }
 
+        pprint(node_available_resources)
+
         # check total required gpus can be satisfied
         total_available_gpus = sum(node_available_gpus.values())
         total_required_gpus = sum(
@@ -879,6 +881,8 @@ class RayPPOTrainer:
             rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
             self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
 
+        pprint(f"Resource pool to cls: {self.resource_pool_to_cls}")
+
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`.
@@ -1078,6 +1082,21 @@ class RayPPOTrainer:
 
         from verl.utils.tracking import Tracking
 
+        # jack: add some logging
+        print("\n======== RayPPOTrainer Fields START ========")
+        # print("tokenizer:", self.tokenizer)
+        print("processor:", self.processor)
+        print("reward_fn:", self.reward_fn)
+        print("val_reward_fn:", self.val_reward_fn)
+        print("use_reference_policy:", self.use_reference_policy)
+        print("use_rm:", self.use_rm)
+        print("device_name:", self.device_name)
+        print("validation_generations_logger:", self.validation_generations_logger)
+        print("ref_in_actor:", self.ref_in_actor)
+        print("config.algorithm.adv_estimator:", self.config.algorithm.adv_estimator)
+        print("use_critic", self.use_critic)
+        print("======== RayPPOTrainer Fields END ========\n")
+
         logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
@@ -1128,6 +1147,8 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
+                print("\nbatch from Data Loader:", batch, "\n")
+
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
@@ -1148,6 +1169,8 @@ class RayPPOTrainer:
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
+                print("\nbatch After Popping:", batch, "\n")
+                print("\ngen_batch After Popping:", batch, "\n")
 
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
@@ -1187,6 +1210,8 @@ class RayPPOTrainer:
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
+
+                    print("\nbatch after rollout:", batch, "\n")
 
                     if "response_mask" not in batch.batch:
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1297,6 +1322,8 @@ class RayPPOTrainer:
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
+
+                    print("\nbatch after scores+rewards+advantage+returns:", batch, '\n')
 
                     # update critic
                     if self.use_critic:

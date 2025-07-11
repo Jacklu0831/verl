@@ -230,6 +230,41 @@ class DataProto:
         else:
             return 0
 
+    def __str__(self):
+        """Return a string representation of the DataProto with comprehensive information about its structure."""
+        lines = []
+        lines.append(f"DataProto(length={len(self)})")
+
+        # Batch (TensorDict) information
+        if self.batch is not None:
+            lines.append("  batch (TensorDict):")
+            for key, tensor in self.batch.items():
+                lines.append(f"    {key}: shape={list(tensor.shape)}, dtype={tensor.dtype}, device={tensor.device}")
+        else:
+            lines.append("  batch: None")
+
+        # Non-tensor batch information
+        if self.non_tensor_batch:
+            lines.append("  non_tensor_batch:")
+            for key, val in self.non_tensor_batch.items():
+                if isinstance(val, np.ndarray):
+                    first_element = val[0] if len(val) > 0 else "empty"
+                    lines.append(f"    {key}: numpy.ndarray, shape={val.shape}, dtype={val.dtype}, first_element={first_element}")
+                else:
+                    lines.append(f"    {key}: {type(val).__name__}, value={val}")
+        else:
+            lines.append("  non_tensor_batch: {}")
+
+        # Meta info
+        if self.meta_info:
+            lines.append("  meta_info:")
+            for key, val in self.meta_info.items():
+                lines.append(f"    {key}: {val}")
+        else:
+            lines.append("  meta_info: {}")
+
+        return "\n".join(lines)
+
     def __getitem__(self, item):
         """
         Enhanced indexing for DataProto objects.

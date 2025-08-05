@@ -383,6 +383,7 @@ class RayPPOTrainer:
             self.use_critic = False
         else:
             raise NotImplementedError
+        print(f'Using critic: {self.use_critic}')
 
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
@@ -1114,7 +1115,7 @@ class RayPPOTrainer:
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
-            pprint(f"Initial validation metrics: {val_metrics}")
+            # pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
@@ -1147,7 +1148,7 @@ class RayPPOTrainer:
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
-                print("\nbatch from Data Loader:", batch, "\n")
+                # print("\nbatch from Data Loader:", batch, "\n")
 
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
@@ -1169,8 +1170,8 @@ class RayPPOTrainer:
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
-                print("\nbatch After Popping:", batch, "\n")
-                print("\ngen_batch After Popping:", batch, "\n")
+                # print("\nbatch After Popping:", batch, "\n")
+                # print("\ngen_batch After Popping:", batch, "\n")
 
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
@@ -1211,7 +1212,7 @@ class RayPPOTrainer:
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
-                    print("\nbatch after rollout:", batch, "\n")
+                    # print("\nbatch after rollout:", batch, "\n")
 
                     if "response_mask" not in batch.batch:
                         batch.batch["response_mask"] = compute_response_mask(batch)
@@ -1323,7 +1324,7 @@ class RayPPOTrainer:
                             config=self.config.algorithm,
                         )
 
-                    print("\nbatch after scores+rewards+advantage+returns:", batch, '\n')
+                    # print("\nbatch after scores+rewards+advantage+returns:", batch, '\n')
 
                     # update critic
                     if self.use_critic:
@@ -1345,7 +1346,7 @@ class RayPPOTrainer:
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
                         with marked_timer("dump_rollout_generations", timing_raw, color="green"):
-                            print(batch.batch.keys())
+                            # print(batch.batch.keys())
                             inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                             outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()

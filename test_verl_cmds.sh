@@ -16,7 +16,7 @@ export RAY_DEBUG=legacy && unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,
     trainer.total_epochs=100 \
     data.train_files=/scratch/yl11330/skill-factory/data/countdown_3arg/train.parquet \
     data.val_files=/scratch/yl11330/skill-factory/data/countdown_3arg/test.parquet \
-    data.train_batch_size=256 \
+    data.train_batch_size=16 \
     data.max_prompt_length=512 \
     data.max_response_length=4096 \
     actor_rollout_ref.model.path=TAUR-dev/SIE-countdown3arg_sft1ep_1e6lr_mix_ss_pse_vote_ansrev-sft \
@@ -30,11 +30,15 @@ export RAY_DEBUG=legacy && unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,
     critic.model.path=TAUR-dev/SIE-countdown3arg_sft1ep_1e6lr_mix_ss_pse_vote_ansrev-sft \
     critic.optim.lr=5e-5 \
     critic.ppo_micro_batch_size_per_gpu=2 \
-    custom_reward_function.path=thirdparty/verl/sf_scripts/skill_factory_rewards.py
+    custom_reward_function.path=thirdparty/verl/sf_scripts/skill_factory_rewards.py \
+    custom_reward_function.reward_kwargs.format_score_weight=0.5 \
+    custom_reward_function.reward_kwargs.transition_penalty_weight=0.5 \
+    custom_reward_function.reward_kwargs.reward_min=-1.0 \
+    custom_reward_function.reward_kwargs.reward_max=5.0
 
 # run grpo (1 node 2 gpu), countdown_3arg
 # NOTE: change trainer.project_name to log into your own wandb project
-unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+export RAY_DEBUG=legacy && unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     trainer.logger=['console','wandb'] \
     trainer.project_name=jackrl \
@@ -46,10 +50,10 @@ unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 python
     trainer.total_epochs=100 \
     data.train_files=/scratch/yl11330/skill-factory/data/countdown_3arg/train.parquet \
     data.val_files=/scratch/yl11330/skill-factory/data/countdown_3arg/test.parquet \
-    data.train_batch_size=256 \
+    data.train_batch_size=16 \
     data.max_prompt_length=512 \
     data.max_response_length=4096 \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
@@ -58,4 +62,8 @@ unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 python
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
-    custom_reward_function.path=thirdparty/verl/sf_scripts/skill_factory_rewards.py
+    custom_reward_function.path=thirdparty/verl/sf_scripts/skill_factory_rewards.py \
+    custom_reward_function.reward_kwargs.format_score_weight=0.5 \
+    custom_reward_function.reward_kwargs.transition_penalty_weight=0.5 \
+    custom_reward_function.reward_kwargs.reward_min=-1.0 \
+    custom_reward_function.reward_kwargs.reward_max=5.0

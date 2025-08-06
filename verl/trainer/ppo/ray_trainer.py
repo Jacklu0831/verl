@@ -1403,6 +1403,16 @@ class RayPPOTrainer:
                 )
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+
+                # Add training metrics from reward extra info
+                if reward_extra_infos_dict:
+                    reward_extra_metrics = {}
+                    for key, values in reward_extra_infos_dict.items():
+                        assert isinstance(values, list) and len(values) > 0
+                        values_array = np.array(values)
+                        reward_extra_metrics[f"training/{key}/mean"] = float(np.mean(values_array))
+                    metrics.update(reward_extra_metrics)
+
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()

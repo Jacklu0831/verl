@@ -30,12 +30,16 @@ from transformers import PreTrainedTokenizer
 
 from verl.utils.device import get_device_name, get_torch_device
 
-try:
-    from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
+# try:
+#     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
 
-    FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = True
-except ImportError:
-    FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
+#     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = True
+# except ImportError:
+#     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
+
+# jack: disabling flashattn cross entropy due to failure on some NYU machines
+#       pretty sure it's a negligible efficiency difference
+FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
 
 
 try:

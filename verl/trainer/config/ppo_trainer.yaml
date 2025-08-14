@@ -740,6 +740,7 @@ custom_reward_function:
   # Additional keyword arguments to pass to the reward function
   reward_kwargs:
     format_score_weight: 0.0
+    format_score_v2_weight: 0.0
     transition_penalty_weight: 0.0
     reward_min: 0.0
     reward_max: 10.0

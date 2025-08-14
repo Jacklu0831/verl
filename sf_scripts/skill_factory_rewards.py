@@ -59,11 +59,77 @@ def compute_format_score(solution_str: str) -> float:
     return float(is_ordered)
 
 
+def compute_format_score_v2(solution_str: str) -> float:
+    """
+    Return 1 if a string follows the exact format specified, else 0.
+
+    <think>
+        <sample>
+        {trace 1, can be correct or incorrect, include an <answer>...</answer>}
+        </sample>
+        <reflect>
+        {simple static glue phrase}
+        </reflect>
+        <sample>
+        {trace 2, always correct, include an <answer>...</answer>}}
+        </sample>
+    </think>
+    <answer>
+    {gold answer}
+    </answer>
+    """
+    # Find all tags in the solution_str
+    tag_pattern = r'<(/?)(?:think|sample|reflect|answer)>'
+    matches = list(re.finditer(tag_pattern, solution_str))
+
+    # Extract tags in order
+    found_tags = [match.group(0) for match in matches]
+
+    # Right number of tags and in the correct order
+    if found_tags != [
+        '<think>',
+            '<sample>',
+                '<answer>',
+                '</answer>',
+            '</sample>',
+            '<reflect>',
+            '</reflect>',
+            '<sample>',
+                '<answer>',
+                '</answer>',
+            '</sample>',
+        '</think>',
+        '<answer>',
+        '</answer>'
+    ]:
+        return 0.0
+
+    # Check that the reflect section contains the exact phrase
+    reflect_start = None
+    reflect_end = None
+    for match in matches:
+        if match.group(0) == '<reflect>':
+            reflect_start = match.end()
+        elif match.group(0) == '</reflect>':
+            reflect_end = match.start()
+            break
+
+    if reflect_start is None or reflect_end is None:
+        return 0.0
+
+    reflect_content = solution_str[reflect_start:reflect_end].strip()
+    if reflect_content != "Actually, wait, let me be more careful about this.":
+        return 0.0
+
+    return 1.0
+
+
 def compute_score(
         data_source: str,
         solution_str: str,
         ground_truth: str,
         format_score_weight: float,
+        format_score_v2_weight: float,
         transition_penalty_weight: float,
         reward_min: float,
         reward_max: float,
@@ -111,12 +177,14 @@ def compute_score(
         assert len(result['model_responses__verl__internal_answers__eval_is_correct'][0]) == 1 # one solution_str
         transition_penalty = compute_transition_penalty(result['model_responses__verl__internal_answers__eval_is_correct'][0][0])
 
-    # Compute formatting score
+    # Compute formatting scores
     format_score = compute_format_score(solution_str)
+    format_score_v2 = compute_format_score_v2(solution_str)
 
     # Combine rewards
     final_reward = is_correct \
         + format_score * format_score_weight \
+        + format_score_v2 * format_score_v2_weight \
         - transition_penalty * transition_penalty_weight
 
     # Clip reward to bounds

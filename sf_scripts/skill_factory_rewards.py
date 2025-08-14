@@ -195,5 +195,6 @@ def compute_score(
         "score": final_reward, # the actual reward used for training
         "final_is_correct": float(is_correct), # for logging
         "format_score": format_score, # for logging
+        "format_score_v2": format_score_v2, # for logging
         "transition_penalty": transition_penalty, # for logging
     }

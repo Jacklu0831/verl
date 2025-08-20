@@ -742,6 +742,9 @@ custom_reward_function:
     format_score_weight: 0.0
     format_score_v2_weight: 0.0
     transition_penalty_weight: 0.0
+    similarity_penalty_weight: 0.0
+    sample_correctness_weight: 0.0
+    sample_count_penalty_weight: 0.0
     reward_min: 0.0
     reward_max: 10.0
 

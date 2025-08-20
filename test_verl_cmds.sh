@@ -32,7 +32,9 @@ export RAY_DEBUG=legacy && unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,
     critic.ppo_micro_batch_size_per_gpu=2 \
     custom_reward_function.path=thirdparty/verl/sf_scripts/skill_factory_rewards.py \
     custom_reward_function.reward_kwargs.format_score_weight=0.5 \
+    custom_reward_function.reward_kwargs.format_score_v2_weight=0.5 \
     custom_reward_function.reward_kwargs.transition_penalty_weight=0.5 \
+    custom_reward_function.reward_kwargs.similarity_penalty_weight=1.0 \
     custom_reward_function.reward_kwargs.reward_min=-1.0 \
     custom_reward_function.reward_kwargs.reward_max=5.0
 
@@ -64,6 +66,8 @@ export RAY_DEBUG=legacy && unset ROCR_VISIBLE_DEVICES && CUDA_VISIBLE_DEVICES=0,
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     custom_reward_function.path=thirdparty/verl/sf_scripts/skill_factory_rewards.py \
     custom_reward_function.reward_kwargs.format_score_weight=0.5 \
+    custom_reward_function.reward_kwargs.format_score_v2_weight=0.5 \
     custom_reward_function.reward_kwargs.transition_penalty_weight=0.5 \
+    custom_reward_function.reward_kwargs.similarity_penalty_weight=1.0 \
     custom_reward_function.reward_kwargs.reward_min=-1.0 \
     custom_reward_function.reward_kwargs.reward_max=5.0

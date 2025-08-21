@@ -259,7 +259,7 @@ def compute_sample_count_penalty(solution_str: str) -> float:
     
     # Apply penalty if 0 or 1 sample tags
     if num_samples < 2:
-        return -1.0
+        return 1.0
     
     return 0.0
 

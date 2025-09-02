@@ -11,7 +11,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf_repo", default="TAUR-dev/D-DATA-canonical_dataset_splits-v1-7_13_25")
 
-    parser.add_argument('--task_configs', default=['countdown_3arg'], type=str, nargs='+', help="The task config to filter the dataset")
+    parser.add_argument('--task_configs', default=['countdown_3arg'], type=str, nargs='+', help="The task configs to use for training data")
+    parser.add_argument('--validation_task_configs', default=None, type=str, nargs='+', help="The task configs to use for validation data (defaults to task_configs if not specified)")
     parser.add_argument('--training_splits', default=['rl_train'], nargs='+')
 
     parser.add_argument("--validation_splits", default=['val'], nargs='+', help="The splits to load from the dataset")
@@ -22,9 +23,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # If validation_task_configs not specified, use task_configs
+    if args.validation_task_configs is None:
+        args.validation_task_configs = args.task_configs
+
     training_datasets = []
     validation_datasets = []
 
+    # Process training tasks
     for task_config in args.task_configs:
         dataset = load_dataset(args.hf_repo, task_config)
 
@@ -33,6 +39,10 @@ if __name__ == "__main__":
                 raise ValueError(f"Split {split} not found in dataset {args.hf_repo} for task config {task_config}")
 
             training_datasets.append(dataset[split])
+
+    # Process validation tasks
+    for task_config in args.validation_task_configs:
+        dataset = load_dataset(args.hf_repo, task_config)
 
         for split in args.validation_splits:
             if split not in dataset:

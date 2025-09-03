@@ -68,7 +68,7 @@ if __name__ == "__main__":
             extra_cols = json.loads(example['all_other_columns'])
 
             data = {
-                "data_source": example["task_source"],
+                "data_source": example["task_config"],
                 "prompt": example['prompt'],
                 "ability": "math",
                 "reward_model": {"style": "rule", "ground_truth": example['answer']},

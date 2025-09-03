@@ -286,7 +286,8 @@ def compute_score_batch(
             **extra_info,
             'model_responses__verl': [solution_strs[i]],
             'answer': ground_truths[i],
-            'task_source': data_sources[i],
+            # 'task_source': data_sources[i], # task_config is passed here from skill_factory_data, not task_source
+            'task_source': extra_info['task_source'],
         })
 
 

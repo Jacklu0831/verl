@@ -739,11 +739,15 @@ custom_reward_function:
 
   # Additional keyword arguments to pass to the reward function
   reward_kwargs:
-    format_score_weight: 0.0
-    format_score_v2_weight: 0.0
+    response_or_sample: sample
+    simple_format_reward_weight: 0.0
+    complex_format_reward_weight: 0.0
+    sample_correctness_reward_weight: 0.0
+    verdict_correctness_reward_weight: 0.0
+    reflection_correctness_reward_weight: 0.0
+    final_answer_in_samples_reward_weight: 0.0
     transition_penalty_weight: 0.0
     similarity_penalty_weight: 0.0
-    sample_correctness_weight: 0.0
     sample_count_penalty_weight: 0.0
     reward_min: 0.0
     reward_max: 10.0

@@ -4,175 +4,111 @@ from skill_factory.data.sources.answer_extraction import TagPattern, AnswerExtra
 from datasets import Dataset
 import json
 import re
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Dict
 from difflib import SequenceMatcher
 
 
-def compute_transition_penalty(all_intermediate_is_correct: List[bool]) -> float:
+def compute_transition_penalty(internal_answers_is_correct: List[bool]) -> float:
+    """Count number of True->False Transitions, divide by number of transitions to normalize to [0, 1].
+       Includes the transition from the last sample to the final answer.
     """
-    Count number of True->False Transitions, divide by number of transitions to normalize to [0, 1].
-    """
-    if len(all_intermediate_is_correct) < 2:
+    if len(internal_answers_is_correct) < 2:
         return 0.0
 
     transition_penalty = 0.0
-    for i in range(len(all_intermediate_is_correct) - 1):
-        if all_intermediate_is_correct[i] and not all_intermediate_is_correct[i + 1]:
+    for i in range(len(internal_answers_is_correct) - 1):
+        if internal_answers_is_correct[i] and not internal_answers_is_correct[i + 1]:
             transition_penalty += 1.0
-    transition_penalty /= (len(all_intermediate_is_correct) - 1)
+    transition_penalty /= (len(internal_answers_is_correct) - 1)
     assert 0 <= transition_penalty <= 1.0
 
     return transition_penalty
 
 
-def compute_format_score(solution_str: str) -> float:
-    """
-    Compute formatting score based on proper think and answer tag pairs.
+def compute_simple_format_reward(solution_str: str) -> float:
+    """Return 1 if solution_str follows <think>[any tags]</think><answer></answer>, else 0.0."""
+    # Find all tags in the solution_str
+    tag_pattern = r'<(/?)(?:think|answer)>'
+    matches = list(re.finditer(tag_pattern, solution_str))
+    matches = [match.group(0) for match in matches]
 
-    Returns 1.0 if all satisfied:
-    - At least one <think></think> pair exists
-    - At least one <answer></answer> pair exists
-    - All opening tags have corresponding closing tags
-    - Tags appear in correct order (<think> before </think>, <answer> before </answer>)
-
-    Returns 0.0 otherwise.
-    """
-    # Find all tag positions
-    think_open_pos = [m.start() for m in re.finditer(r'<think>', solution_str)]
-    think_close_pos = [m.start() for m in re.finditer(r'</think>', solution_str)]
-    answer_open_pos = [m.start() for m in re.finditer(r'<answer>', solution_str)]
-    answer_close_pos = [m.start() for m in re.finditer(r'</answer>', solution_str)]
-
-    # has think and answer pair
-    has_pair = len(think_open_pos) >= 1 and len(think_close_pos) >= 1 and len(answer_open_pos) >= 1 and len(answer_close_pos) >= 1
-    if not has_pair:
+    if len(matches) < 4:
         return 0.0
-
-    # is balanced
-    is_balanced = (len(think_open_pos) == len(think_close_pos)) and (len(answer_open_pos) == len(answer_close_pos))
-    if not is_balanced:
-        return 0.0
-
-    # is ordered
-    is_ordered = all(open < close for open, close in zip(think_open_pos, think_close_pos)) and \
-        all(open < close for open, close in zip(answer_open_pos, answer_close_pos))
-
-    return float(is_ordered)
+    if matches[0] == '<think>' and matches[-3:] == ['</think>', '<answer>', '</answer>']:
+        return 1.0
+    return 0.0
 
 
-def compute_format_score_v2(solution_str: str) -> float:
+def compute_complex_format_reward(solution_str: str, response_or_sample: str) -> float:
     """
-    Return 1 if a string follows the exact format specified, else 0.
-
-    <think>
-        <sample>
-        {trace 1, can be correct or incorrect, include an <answer>...</answer>}
-        </sample>
-        <reflect>
-        {simple static glue phrase}
-        </reflect>
-        <sample>
-        {trace 2, always correct, include an <answer>...</answer>}}
-        </sample>
-    </think>
-    <answer>
-    {gold answer}
-    </answer>
+        Return 1 if a string follows
+        <think> <sample><answer></answer></sample><reflect><verdict></verdict></reflect> </think><answer></answer>
+        where the middle part can be repeated >=1 time(s),
+        else 0.0.
     """
     # Find all tags in the solution_str
-    tag_pattern = r'<(/?)(?:think|sample|reflect|answer)>'
+    tag_pattern = fr'<(/?)(?:think|{response_or_sample}|reflect|verdict|answer)>'
     matches = list(re.finditer(tag_pattern, solution_str))
+    matches = [match.group(0) for match in matches]
 
-    # Extract tags in order
-    found_tags = [match.group(0) for match in matches]
-
-    # Right number of tags and in the correct order
-    if found_tags != [
-        '<think>',
-            '<sample>',
-                '<answer>',
-                '</answer>',
-            '</sample>',
-            '<reflect>',
-            '</reflect>',
-            '<sample>',
-                '<answer>',
-                '</answer>',
-            '</sample>',
-        '</think>',
-        '<answer>',
-        '</answer>'
-    ]:
+    # if should at least pass simple_format_reward
+    if len(matches) < 4:
+        return 0.0
+    if matches[0] != '<think>' or matches[-3:] != ['</think>', '<answer>', '</answer>']:
         return 0.0
 
-    # Check that the reflect section contains the exact phrase
-    reflect_start = None
-    reflect_end = None
-    for match in matches:
-        if match.group(0) == '<reflect>':
-            reflect_start = match.end()
-        elif match.group(0) == '</reflect>':
-            reflect_end = match.start()
-            break
-
-    if reflect_start is None or reflect_end is None:
+    # check if the middle part is a non-empty repetition of the template
+    template = [
+        f'<{response_or_sample}>',
+            '<answer>',
+            '</answer>',
+        f'</{response_or_sample}>',
+        '<reflect>',
+            '<verdict>',
+            '</verdict>',
+        '</reflect>'
+    ]
+    matches_within_think_tags = matches[1:-3]
+    if len(matches_within_think_tags) == 0:
         return 0.0
 
-    reflect_content = solution_str[reflect_start:reflect_end].strip()
-    if reflect_content != "Actually, wait, let me be more careful about this.":
-        return 0.0
+    while len(matches_within_think_tags) > 0:
+        if matches_within_think_tags[:len(template)] != template:
+            return 0.0
+        matches_within_think_tags = matches_within_think_tags[len(template):]
 
     return 1.0
 
 
-def extract_sample_text(text: str) -> List[str]:
-    """
-    Extract all text between <sample> and </sample> tags.
-
-    Args:
-        text: Input text containing sample tags
-
-    Returns:
-        List of strings containing the content between sample tags
-    """
-    pattern = r'<sample>(.*?)</sample>'
+def extract_tag_text(text: str, tag: str) -> List[str]:
+    """Extract all text between <tag> and </tag>."""
+    pattern = fr'<{tag}>(.*?)</{tag}>'
     matches = re.findall(pattern, text, re.DOTALL)
     return matches
 
 
 def remove_answer_tags(text: str) -> str:
-    """
-    Remove all text between <answer> and </answer> tags from the input text.
-
-    Args:
-        text: Input text that may contain answer tags
-
-    Returns:
-        Text with answer tag content removed
-    """
+    """Remove all text between <answer> and </answer> tags from the input text."""
     pattern = r'<answer>.*?</answer>'
     return re.sub(pattern, '', text, flags=re.DOTALL)
 
 
 def compute_lexical_similarity(text1: str, text2: str) -> float:
-    """
-    Compute lexical similarity between two texts using SequenceMatcher.
-
-    Args:
-        text1: First text to compare
-        text2: Second text to compare
-
-    Returns:
-        Similarity ratio between 0 and 1
-    """
+    """Compute lexical similarity between two texts using SequenceMatcher."""
     # Normalize whitespace for better comparison
     text1 = ' '.join(text1.split())
     text2 = ' '.join(text2.split())
 
-    return SequenceMatcher(None, text1, text2).ratio()
+    similarity = SequenceMatcher(None, text1, text2).ratio()
+    assert 0 <= similarity <= 1.0
+    return similarity
 
 
-def compute_similarity_penalty(solution_str: str, threshold: float = 0.9) -> float:
+def compute_similarity_penalty(
+    solution_str: str,
+    response_or_sample: str,
+    threshold: float = 0.9,
+) -> float:
     """
     Compute similarity penalty based on lexical similarity between samples.
 
@@ -188,7 +124,7 @@ def compute_similarity_penalty(solution_str: str, threshold: float = 0.9) -> flo
         1.0 if similarity exceeds threshold (penalty should be applied), 0.0 otherwise
     """
     # Extract sample texts
-    samples = extract_sample_text(solution_str)
+    samples = extract_tag_text(solution_str, tag=response_or_sample)
 
     # Need at least 2 samples to compare
     if len(samples) < 2:
@@ -207,7 +143,11 @@ def compute_similarity_penalty(solution_str: str, threshold: float = 0.9) -> flo
     return 0.0
 
 
-def compute_sample_correctness_reward(solution_str: str, internal_answers_is_correct: List[bool]) -> float:
+def compute_sample_correctness_reward(
+    solution_str: str,
+    response_or_sample: str,
+    internal_answers_is_correct: List[bool],
+) -> float:
     """
     Compute reward based on correctness of sample tags.
 
@@ -221,8 +161,11 @@ def compute_sample_correctness_reward(solution_str: str, internal_answers_is_cor
     Returns:
         Ratio of correct samples (# correct / N), max value is 1.0
     """
+    if len(internal_answers_is_correct) == 0:
+        return 0.0
+
     # Extract sample texts to count them
-    samples = extract_sample_text(solution_str)
+    samples = extract_tag_text(solution_str, tag=response_or_sample)
     num_samples = len(samples)
 
     # If no samples found, return 0
@@ -241,144 +184,59 @@ def compute_sample_correctness_reward(solution_str: str, internal_answers_is_cor
     return num_correct / num_samples
 
 
-def compute_sample_count_penalty(solution_str: str) -> float:
-    """
-    Compute penalty based on number of sample tags.
+def compute_sample_count_penalty(solution_str: str, response_or_sample: str, sample_count: int) -> float:
+    """Return 1.0 if there is fewer than sample_count"""
+    samples = extract_tag_text(solution_str, tag=response_or_sample)
+    return int(len(samples) < sample_count)
 
-    Returns -1 penalty if 0 or 1 sample tags are found, 0 otherwise.
 
-    Args:
-        solution_str: Model's solution string
+def compute_verdict_correctness_reward(solution_str: str, internal_answers_is_correct: List[bool], tag: str) -> float:
+    """Compute average verification correctness"""
+    verdict_correctness_reward = 0.0
+    verdicts = extract_tag_text(solution_str, tag)
 
-    Returns:
-        -1.0 if 0 or 1 sample tags found, 0.0 if 2 or more sample tags
-    """
-    # Extract sample texts to count them
-    samples = extract_sample_text(solution_str)
-    num_samples = len(samples)
-
-    # Apply penalty if 0 or 1 sample tags
-    if num_samples < 2:
-        return 1.0
+    if len(verdicts) > 0 and len(internal_answers_is_correct) == len(verdicts) + 1:
+        # valid format, now test verdicts
+        for c, v in zip(internal_answers_is_correct[:-1], verdicts):
+            verdict_is_correct = ('wrong' not in v.lower()) and ('incorrect' not in v.lower()) and ('not correct' not in v.lower())
+            if c == verdict_is_correct:
+                verdict_correctness_reward += 1.0
+        return verdict_correctness_reward / len(verdicts)
 
     return 0.0
 
 
-def compute_score(
-        data_source: str,
-        solution_str: str,
-        ground_truth: str,
-        format_score_weight: float,
-        format_score_v2_weight: float,
-        transition_penalty_weight: float,
-        similarity_penalty_weight: float,
-        sample_correctness_weight: float,
-        sample_count_penalty_weight: float,
-        reward_min: float,
-        reward_max: float,
-        extra_info: Optional[Union[str, dict]] = None
-    ):
-    """
-    Compute reward score
-
-    Args:
-        data_source: Name of the data source for task-specific evaluation scheme (e.g., countdown)
-        solution_str: Model's solution string
-        ground_truth: Correct answer (e.g., 5 + 87 + 73)
-        format_score_weight: weight for formatting reward, which is added to other rewards
-        format_score_v2_weight: weight for formatting v2 reward, which is added to other rewards
-        transition_penalty_weight: weight for transition penalty, which is subtracted from other rewards
-        similarity_penalty_weight: weight for similarity penalty, which is subtracted from other rewards
-        sample_correctness_weight: weight for sample correctness reward, which is added to other rewards
-        sample_count_penalty_weight: weight for sample count penalty, which is subtracted from other rewards
-        reward_min: minimum reward value (lower bound for clipping)
-        reward_max: maximum reward value (upper bound for clipping)
-        extra_info: Additional info dict
-    """
-    if extra_info is None:
-        extra_info = {}
-    elif not isinstance(extra_info, dict):
-        extra_info = json.loads(extra_info)
-
-    assert isinstance(extra_info, dict)
-    assert 'task_source' in extra_info, "extra_info must contain 'task_source' key"
-
-    # evaluate model response
-    ds = Dataset.from_list([{ **extra_info, 'model_responses__verl': [solution_str], 'answer': ground_truth, 'task_source': data_source }])
-    answer_tag_pattern = TagPattern('<answer>', '</answer>', 'answer tag', 1.0)
-    extractor = AnswerExtractor([answer_tag_pattern], [answer_tag_pattern])
-    result = evaluate_dataset(ds, ['model_responses__verl'], verbose=False, custom_extractor=extractor)
-
-    # all intermediate answers that are in <answer> tags (including the final answer so you may want to ignore the last one.)
-    # internal_answers = result['model_responses__verl__internal_answers__eval_extracted_answers']
-
-    # final answer
-    assert len(result['model_responses__verl__eval_is_correct']) == 1 # one dataset row
-    assert len(result['model_responses__verl__eval_is_correct'][0]) == 1 # one solution_str
-    is_correct = result['model_responses__verl__eval_is_correct'][0][0]
-
-    # intermediate answers (transition penalty)
-    assert len(result['model_responses__verl__internal_answers__eval_is_correct']) == 1 # one dataset row
-    transition_penalty = 0.0
-    if result['model_responses__verl__internal_answers__eval_is_correct'][0] != None:
-        assert len(result['model_responses__verl__internal_answers__eval_is_correct'][0]) == 1 # one solution_str
-        transition_penalty = compute_transition_penalty(result['model_responses__verl__internal_answers__eval_is_correct'][0][0])
-
-    # Compute formatting scores
-    format_score = compute_format_score(solution_str)
-    format_score_v2 = compute_format_score_v2(solution_str)
-
-    # Compute similarity penalty
-    similarity_penalty = compute_similarity_penalty(solution_str)
-
-    # Compute sample correctness reward
-    sample_correctness_reward = 0.0
-    if result['model_responses__verl__internal_answers__eval_is_correct'][0] != None:
-        assert len(result['model_responses__verl__internal_answers__eval_is_correct'][0]) == 1 # one solution_str
-        sample_correctness_reward = compute_sample_correctness_reward(solution_str, result['model_responses__verl__internal_answers__eval_is_correct'][0][0])
-
-    # Compute sample count penalty
-    sample_count_penalty = compute_sample_count_penalty(solution_str)
-
-    # Combine rewards
-    final_reward = is_correct \
-        + format_score * format_score_weight \
-        + format_score_v2 * format_score_v2_weight \
-        - transition_penalty * transition_penalty_weight \
-        - similarity_penalty * similarity_penalty_weight \
-        + sample_correctness_reward * sample_correctness_weight \
-        - sample_count_penalty * sample_count_penalty_weight
-
-    # Clip reward to bounds
-    final_reward = max(reward_min, min(reward_max, final_reward))
-
-    # Return both the final reward and the individual components for logging
-    return {
-        "score": final_reward, # the actual reward used for training
-        "final_is_correct": float(is_correct), # for logging
-        "format_score": format_score, # for logging
-        "format_score_v2": format_score_v2, # for logging
-        "transition_penalty": transition_penalty, # for logging
-        "similarity_penalty": similarity_penalty, # for logging
-        "sample_correctness_reward": sample_correctness_reward, # for logging
-        "sample_count_penalty": sample_count_penalty, # for logging
-    }
+def compute_final_answer_in_samples_reward(internal_answers: List[str]) -> float:
+    """Check if the final answer is equal to any of the sample answers before it"""
+    if len(internal_answers) > 1:
+        for sample_idx in range(len(internal_answers) - 1):
+            if internal_answers[sample_idx].strip() == internal_answers[-1].strip():
+                return 1.0
+    return 0.0
 
 
 def compute_score_batch(
         data_sources: List[str],
         solution_strs: List[str],
         ground_truths: List[str],
-        format_score_weight: float,
-        format_score_v2_weight: float,
+        # config
+        response_or_sample: str,
+        # extra reward weights (see defaults in ppo_trainer.yaml)
+        simple_format_reward_weight: float,
+        complex_format_reward_weight: float,
+        sample_correctness_reward_weight: float,
+        verdict_correctness_reward_weight: float,
+        reflection_correctness_reward_weight: float,
+        final_answer_in_samples_reward_weight: float,
+        # extra penalty weights (see defaults in ppo_trainer.yaml)
         transition_penalty_weight: float,
         similarity_penalty_weight: float,
-        sample_correctness_weight: float,
         sample_count_penalty_weight: float,
+        # reward clipping (see defaults in ppo_trainer.yaml)
         reward_min: float,
         reward_max: float,
         extra_infos: Optional[List[Union[str, dict]]] = None,
-    ):
+    ) -> List[Dict[str, float]]:
     """
     Batched version of compute_score for much better performance.
 
@@ -386,12 +244,23 @@ def compute_score_batch(
         data_sources: List of data source names
         solution_strs: List of model solution strings
         ground_truths: List of correct answers
-        extra_infos: List of extra info dicts
-        format_score_weight: weight for formatting reward
-        format_score_v2_weight: weight for formatting reward v2
-        transition_penalty_weight: weight for transition penalty
+
+        response_or_sample: either "response" or "sample", based on which SFT dataset we use
+
+        simple_format_reward_weight: whether think and answer open-and-close tags are present
+        complex_format_reward_weight: whether model properly thinks with <sample>, <answer>, <reflect>, and <verdict>
+        sample_correctness_reward_weight: average correctness of samples (not including the final answer)
+        verdict_correctness_reward_weight: average correctness in whether the model self-judges correctly, extracted from verdict tags
+        reflection_correctness_reward_weight: average correctness in whether the model self-judges correctly, extracted from reflection tags
+        final_answer_in_samples_reward_weight: whether the final answer is one of the sampled answers
+
+        transition_penalty_weight:
+        similarity_penalty_weight
+        sample_count_penalty_weight
+
         reward_min: minimum reward value
         reward_max: maximum reward value
+        extra_infos: List of extra info dicts
 
     Returns:
         List of score dictionaries, one per input sample
@@ -410,15 +279,15 @@ def compute_score_batch(
         extra_info = extra_infos[i] or {}
         if not isinstance(extra_info, dict):
             extra_info = json.loads(extra_info)
-
         assert 'task_source' in extra_info, f"extra_info must contain 'task_source' key for sample {i}"
 
         dataset_rows.append({
             **extra_info,
             'model_responses__verl': [solution_strs[i]],
             'answer': ground_truths[i],
-            'task_source': data_sources[i]
+            'task_source': data_sources[i],
         })
+
 
     # evaluate model response
     ds = Dataset.from_list(dataset_rows)
@@ -430,62 +299,113 @@ def compute_score_batch(
     # internal_answers = result['model_responses__verl__internal_answers__eval_extracted_answers']
 
     # store column queries to only access once
-    eval_is_correct_list = result['model_responses__verl__eval_is_correct']
-    internal_answers__eval_is_correct_list = result['model_responses__verl__internal_answers__eval_is_correct']
-    assert len(eval_is_correct_list) == len(internal_answers__eval_is_correct_list) == batch_size
+    final_is_correct_list = result['model_responses__verl__eval_is_correct']
+    internal_answers_is_correct_list = result['model_responses__verl__internal_answers__eval_is_correct']
+    internal_answers_list = result['model_responses__verl__internal_answers__eval_extracted_answers']
+    assert len(final_is_correct_list) == len(internal_answers_is_correct_list) == len(internal_answers_list) == batch_size
 
-    # compute store
+
+    # quick checks for format because im paranoid
+    assert all(len(x) == 1 for x in final_is_correct_list) # one solution str
+    assert all(len(x) == 1 for x in internal_answers_is_correct_list if x != None) # one solution str
+    assert all(len(x) == 1 for x in internal_answers_list if x != None) # one solution str
+
+    assert [i for i, x in enumerate(internal_answers_is_correct_list) if x == None] == \
+         [i for i, x in enumerate(internal_answers_list) if x == None]
+    assert [len(x[0]) for x in internal_answers_is_correct_list if x != None] == \
+        [len(x[0]) for x in internal_answers_list if x != None]
+
+    assert all(x[0] in [True, False] for x in final_is_correct_list)
+    assert all(set(x[0]).issubset({True, False}) for x in internal_answers_is_correct_list if x != None)
+
+
+    # compute and store a bunch of info in score
     scores = []
-    for i in range(batch_size):
-        # final answer
-        assert len(eval_is_correct_list[i]) == 1 # one solution_str
-        is_correct = eval_is_correct_list[i][0]
+    for solution_str, final_is_correct, internal_answers_is_correct, internal_answers in \
+        zip(solution_strs, final_is_correct_list, internal_answers_is_correct_list, internal_answers_list):
 
-        # intermediate answers (transition penalty)
-        transition_penalty = 0.0
-        if internal_answers__eval_is_correct_list[i] is not None:
-            assert len(internal_answers__eval_is_correct_list[i]) == 1 # one solution_str
-            transition_penalty = compute_transition_penalty(
-                internal_answers__eval_is_correct_list[i][0]
-            )
+        internal_answers = internal_answers[0] if internal_answers != None else []
+        internal_answers_is_correct = internal_answers_is_correct[0] if internal_answers_is_correct != None else []
+        final_answer_is_correct = float(final_is_correct[0])
 
-        # Compute formatting scores
-        format_score = compute_format_score(solution_strs[i])
-        format_score_v2 = compute_format_score_v2(solution_strs[i])
+        # more assertions that number of internal answers equals number of answer tags
+        assert len(extract_tag_text(solution_str, tag='answer')) == len(internal_answers) == len(internal_answers_is_correct)
+        if final_answer_is_correct:
+            assert len(internal_answers_is_correct) > 0 and internal_answers_is_correct[-1]
+        else:
+            assert len(internal_answers_is_correct) == 0 or not internal_answers_is_correct[-1]
 
-        # Compute similarity penalty
-        similarity_penalty = compute_similarity_penalty(solution_strs[i])
+        # rewards
+        simple_format_reward = compute_simple_format_reward(solution_str)
+        complex_format_reward = compute_complex_format_reward(solution_str, response_or_sample)
+        sample_correctness_reward = compute_sample_correctness_reward(
+            solution_str=solution_str,
+            internal_answers_is_correct=internal_answers_is_correct,
+            response_or_sample=response_or_sample,
+        )
+        verdict_correctness_reward = compute_verdict_correctness_reward(
+            solution_str=solution_str,
+            internal_answers_is_correct=internal_answers_is_correct,
+            tag='verdict',
+        )
+        reflection_correctness_reward = compute_verdict_correctness_reward(
+            solution_str=solution_str,
+            internal_answers_is_correct=internal_answers_is_correct,
+            tag='reflect',
+        )
+        final_answer_in_samples_reward = compute_final_answer_in_samples_reward(internal_answers=internal_answers)
 
-        # Compute sample correctness reward
-        sample_correctness_reward = 0.0
-        if internal_answers__eval_is_correct_list[i] != None:
-            assert len(internal_answers__eval_is_correct_list[i]) == 1 # one solution_str
-            sample_correctness_reward = compute_sample_correctness_reward(
-                solution_strs[i], internal_answers__eval_is_correct_list[i][0]
-            )
-
-        # Compute sample count penalty
-        sample_count_penalty = compute_sample_count_penalty(solution_strs[i])
+        # penalties
+        transition_penalty = compute_transition_penalty(internal_answers_is_correct)
+        similarity_penalty = compute_similarity_penalty(solution_str, response_or_sample)
+        sample_count_penalty = compute_sample_count_penalty(solution_str, response_or_sample, sample_count=2)
 
         # Combine rewards
-        final_reward = is_correct \
-            + format_score * format_score_weight \
-            + format_score_v2 * format_score_v2_weight \
+        combined_reward = final_answer_is_correct \
+            + simple_format_reward * simple_format_reward_weight \
+            + complex_format_reward * complex_format_reward_weight \
+            + sample_correctness_reward * sample_correctness_reward_weight \
+            + verdict_correctness_reward * verdict_correctness_reward_weight \
+            + reflection_correctness_reward * reflection_correctness_reward_weight \
+            + final_answer_in_samples_reward * final_answer_in_samples_reward_weight \
             - transition_penalty * transition_penalty_weight \
             - similarity_penalty * similarity_penalty_weight \
-            + sample_correctness_reward * sample_correctness_weight \
             - sample_count_penalty * sample_count_penalty_weight
 
         # Clip reward to bounds
-        final_reward = max(reward_min, min(reward_max, final_reward))
+        combined_reward = max(reward_min, min(reward_max, combined_reward))
+
+        # is any answer correct
+        is_any_answer_correct = int(any(internal_answers_is_correct))
 
         # Return both the final reward and the individual components for logging
         scores.append({
-            "score": final_reward,
-            "final_is_correct": float(is_correct),
-            "format_score": format_score,
-            "format_score_v2": format_score_v2,
+            # reward for training
+            "score": combined_reward,
+            # rewards for logging
+            "final_answer_is_correct": final_answer_is_correct,
+            "simple_format_reward": simple_format_reward,
+            "complex_format_reward": complex_format_reward,
+            "sample_correctness_reward": sample_correctness_reward,
+            "verdict_correctness_reward": verdict_correctness_reward,
+            "reflection_correctness_reward": reflection_correctness_reward,
+            "final_answer_in_samples_reward": final_answer_in_samples_reward,
+            # penalties for logging
             "transition_penalty": transition_penalty,
+            "similarity_penalty": similarity_penalty,
+            "sample_count_penalty": sample_count_penalty,
+            # just for logging
+            "num_sample_tag": len(extract_tag_text(solution_str, tag=response_or_sample)),
+            "num_verdict_tag": len(extract_tag_text(solution_str, tag='verdict')),
+            "num_reflect_tag": len(extract_tag_text(solution_str, tag='reflect')),
+            "num_think_tag": len(extract_tag_text(solution_str, tag='think')),
+            "num_answer_tag": len(extract_tag_text(solution_str, tag='answer')),
+            "is_any_answer_correct": is_any_answer_correct,
         })
+
+        # another sanity check
+        if complex_format_reward:
+            assert simple_format_reward
+        assert is_any_answer_correct >= final_answer_is_correct
 
     return scores

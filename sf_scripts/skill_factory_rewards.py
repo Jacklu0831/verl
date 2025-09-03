@@ -84,7 +84,7 @@ def extract_tag_text(text: str, tag: str) -> List[str]:
     """Extract all text between <tag> and </tag>."""
     pattern = fr'<{tag}>(.*?)</{tag}>'
     matches = re.findall(pattern, text, re.DOTALL)
-    return matches
+    return [s.strip() for s in matches if s.strip()]
 
 
 def remove_answer_tags(text: str) -> str:
@@ -198,7 +198,8 @@ def compute_verdict_correctness_reward(solution_str: str, internal_answers_is_co
     if len(verdicts) > 0 and len(internal_answers_is_correct) == len(verdicts) + 1:
         # valid format, now test verdicts
         for c, v in zip(internal_answers_is_correct[:-1], verdicts):
-            verdict_is_correct = ('wrong' not in v.lower()) and ('incorrect' not in v.lower()) and ('not correct' not in v.lower())
+            verdict_is_correct = ('wrong' not in v.lower()) and ('incorrect' not in v.lower()) and \
+                ('not correct' not in v.lower())
             if c == verdict_is_correct:
                 verdict_correctness_reward += 1.0
         return verdict_correctness_reward / len(verdicts)
@@ -254,9 +255,9 @@ def compute_score_batch(
         reflection_correctness_reward_weight: average correctness in whether the model self-judges correctly, extracted from reflection tags
         final_answer_in_samples_reward_weight: whether the final answer is one of the sampled answers
 
-        transition_penalty_weight:
-        similarity_penalty_weight
-        sample_count_penalty_weight
+        transition_penalty_weight: number of incorrect-to-correct occurances, including from the last sample to the final answer
+        similarity_penalty_weight: penalty for when sample content (excluding answer) is too similar
+        sample_count_penalty_weight: penalty for when there are <2 samples
 
         reward_min: minimum reward value
         reward_max: maximum reward value
